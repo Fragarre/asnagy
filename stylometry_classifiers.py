@@ -258,12 +258,6 @@ def compute_and_save_distance_table(X_reduced, clf, filenames, labels, out_csv='
     print(f"[INFO] Distances table saved to {out_csv}")
     return df_distances
 
-# ------------------ BCT functions (builder + drawer) ---------------------
-# (These functions are identical to stylometry_bct.py with full comments)
-
-# ... [Keep bootstrap_consensus_tree() and draw_and_save_consensus_graph() here with full docstrings, same as previous file]
-
-# ----------------- Classifier comparison -------------------
 
 def normalize_features(X):
     """Normalize features to range [0,1] using MinMaxScaler"""
@@ -371,20 +365,6 @@ def main(args):
     # ----------------- Classifier comparison -------------------
     print("[INFO] Running classifier comparison with cross-validation...")
     clf_results = compare_classifiers_cv(X_reduced, labels, output_prefix='classifier', n_splits=5, random_state=args.random_state)
-
-    # ----------------- Build Bootstrap Consensus Tree -------------------
-    G = bootstrap_consensus_tree(X_reduced,
-                                 filenames=filenames,
-                                 labels=labels,
-                                 n_iterations=args.bct_iterations,
-                                 subset_size=args.bct_subset,
-                                 k=args.bct_k,
-                                 weighting=tuple(args.bct_weights),
-                                 metric=args.bct_metric,
-                                 trim_fraction=args.bct_trim_fraction,
-                                 random_state=args.random_state)
-
-    draw_and_save_consensus_graph(G, filenames, labels, out_png=args.consensus_out, figsize=(12, 10), seed=args.random_state)
 
     # ----------------- Visualizations -------------------
     compute_and_save_tsne(X_reduced, labels, filenames, out_html=args.tsne_out, point_size=args.point_size, random_state=args.random_state)
