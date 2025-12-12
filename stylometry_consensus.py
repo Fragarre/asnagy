@@ -2,8 +2,7 @@
 """
 stylometry_bct.py
 
-Standalone version of your stylometry script with an added
-Bootstrap Consensus Tree (BCT) implementation.
+Standalone version Bootstrap Consensus Tree (BCT) implementation.
 
 Usage:
     python stylometry_bct.py --zip path/to/data.zip
@@ -11,14 +10,20 @@ Usage:
     python stylometry_bct.py    # if ./data/ already contains .txt files
 
 Outputs:
-    - confusion_matrix.png
-    - tsne_plot.html
-    - umap_plot.html
-    - distances_table.csv
     - consensus_tree.png
+
+Parameters:
+    '--consensus-out', type=str, default='consensus_tree.png'
+    '--bct-iterations', type=int, default=500
+    '--bct-subset', type=int, default=15
+    '--bct-k', type=int, default=3
+    '--bct-weights', nargs='+', type=float, default=[3.0, 2.0, 1.0]
+    '--bct-metric', type=str, default='cosine'
+    '--bct-trim-fraction', type=float, default=0.05
 """
 
 import os
+import sys
 import zipfile
 import numpy as np
 import matplotlib.pyplot as plt
@@ -42,17 +47,27 @@ import math
 # -------- Helper functions (close to your original ones) --------
 
 def clear_data_folder():
+    """
+    Clean data folder before to load new texts
+    """
     data_path = './data/'
     if os.path.exists(data_path):
         shutil.rmtree(data_path)
     os.makedirs(data_path)
 
 def unzip_data(zip_file, dest='./data/'):
+    """
+    Unzip file to data folder
+    """
     with zipfile.ZipFile(zip_file, 'r') as zip_ref:
         zip_ref.extractall(dest)
     print(f"[INFO] Data extracted to {dest}")
 
 def load_texts_from_data_folder(corpus_path='./data/'):
+    """
+    Load texts to analyze
+    """
+
     texts, labels, filenames = [], [], []
     for filename in sorted(os.listdir(corpus_path)):
         if filename.endswith('.txt'):
@@ -69,7 +84,12 @@ def load_texts_from_data_folder(corpus_path='./data/'):
             filenames.append(filename[:-4])  # without extension
     return texts, labels, filenames
 
+# -------- TFID-SVD  --------
+
 def compute_tfidf_and_svd(texts, ngram_min=2, ngram_max=4, svd_max_components=150, variance_threshold=0.90, random_state=42):
+    """
+    Vectorize and reduce tects
+    """
     vectorizer = TfidfVectorizer(analyzer='char', ngram_range=(ngram_min, ngram_max))
     X = vectorizer.fit_transform(texts)
     print(f"[INFO] Total n-grams generated (vocabulary size): {len(vectorizer.get_feature_names_out())}")
@@ -86,72 +106,6 @@ def compute_tfidf_and_svd(texts, ngram_min=2, ngram_max=4, svd_max_components=15
     svd = TruncatedSVD(n_components=optimal_n, random_state=random_state)
     X_reduced = svd.fit_transform(X)
     return vectorizer, svd, X_reduced, var_cum, optimal_n
-
-def train_centroid_classifier(X_reduced, labels):
-    clf = NearestCentroid()
-    clf.fit(X_reduced, labels)
-    return clf
-
-def plot_and_save_confusion(labels, y_pred, classes, out_path='confusion_matrix.png'):
-    cm = confusion_matrix(labels, y_pred, labels=classes)
-    disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=classes)
-    fig, ax = plt.subplots(figsize=(8, 6))
-    disp.plot(cmap=plt.cm.Blues, ax=ax, xticks_rotation=45)
-    ax.set_xlabel("Etiqueta predicha", fontsize=10)
-    ax.set_ylabel("Etiqueta real", fontsize=10)
-    ax.tick_params(axis='both', labelsize=8)
-    plt.tight_layout()
-    fig.savefig(out_path, dpi=150)
-    plt.close(fig)
-    print(f"[INFO] Confusion matrix saved to {out_path}")
-
-def compute_and_save_tsne(X_reduced, labels, filenames, out_html='tsne_plot.html', point_size=8, random_state=42):
-    n_samples = len(X_reduced)
-    perplexity = min(30, max(2, n_samples // 3))
-    tsne = TSNE(n_components=2, random_state=random_state, perplexity=perplexity)
-    X_tsne = tsne.fit_transform(X_reduced)
-    tsne_df = pd.DataFrame(X_tsne, columns=['x', 'y'])
-    tsne_df['author'] = labels
-    tsne_df['filename'] = filenames
-    fig_tsne = px.scatter(tsne_df, x='x', y='y', color='author', hover_data=['filename'],
-                          title="Visualización t-SNE")
-    fig_tsne.update_traces(marker=dict(size=point_size))
-    fig_tsne.write_html(out_html)
-    print(f"[INFO] t-SNE interactive plot saved to {out_html}")
-
-def compute_and_save_umap(X_reduced, labels, filenames, out_html='umap_plot.html', point_size=8, random_state=42):
-    n_samples = len(X_reduced)
-    n_neighbors = min(15, max(2, n_samples // 3))
-    reducer = UMAP(n_components=2, n_neighbors=n_neighbors, random_state=random_state)
-    X_umap = reducer.fit_transform(X_reduced)
-    umap_df = pd.DataFrame(X_umap, columns=['x', 'y'])
-    umap_df['author'] = labels
-    umap_df['filename'] = filenames
-    fig_umap = px.scatter(umap_df, x='x', y='y', color='author', hover_data=['filename'],
-                          title="Visualización UMAP")
-    fig_umap.update_traces(marker=dict(size=point_size))
-    fig_umap.write_html(out_html)
-    print(f"[INFO] UMAP interactive plot saved to {out_html}")
-    return X_umap
-
-def compute_and_save_distance_table(X_reduced, clf, filenames, labels, out_csv='distances_table.csv'):
-    distances = cdist(X_reduced, clf.centroids_, metric='euclidean')
-    clf_classes = clf.classes_
-    distance_matrix = []
-    for i, fname in enumerate(filenames):
-        row = {"Texto": fname, "Autor": labels[i]}
-        for j, author in enumerate(clf_classes):
-            row[f"Distancia_{author}"] = round(distances[i][j], 5)
-        closest_author = clf_classes[np.argmin(distances[i])]
-        row["Mas_cercano"] = closest_author
-        distance_matrix.append(row)
-    df_distances = pd.DataFrame(distance_matrix)
-    # reorder columns
-    cols = ["Texto", "Autor", "Mas_cercano"] + [col for col in df_distances.columns if col.startswith("Distancia")]
-    df_distances = df_distances[cols]
-    df_distances.to_csv(out_csv, index=False)
-    print(f"[INFO] Distances table saved to {out_csv}")
-    return df_distances
 
 # -------- BCT implementation --------
 
@@ -336,19 +290,8 @@ def main(args):
         random_state=args.random_state
     )
 
-    # Train NearestCentroid classifier and compute confusion matrix
-    clf = train_centroid_classifier(X_reduced, labels)
-    y_pred = clf.predict(X_reduced)
-    plot_and_save_confusion(labels, y_pred, clf.classes_, out_path=args.confusion_out)
-
-    # t-SNE and UMAP visualizations (saved as html)
-    compute_and_save_tsne(X_reduced, labels, filenames, out_html=args.tsne_out, point_size=args.point_size, random_state=args.random_state)
-    compute_and_save_umap(X_reduced, labels, filenames, out_html=args.umap_out, point_size=args.point_size, random_state=args.random_state)
-
-    # distances table
-    df_distances = compute_and_save_distance_table(X_reduced, clf, filenames, labels, out_csv=args.distances_out)
-
     # Build Bootstrap Consensus Tree
+
     G = bootstrap_consensus_tree(X_reduced,
                                  filenames=filenames,
                                  labels=labels,
@@ -365,7 +308,8 @@ def main(args):
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description="Stylometry pipeline with Bootstrap Consensus Tree")
     parser.add_argument('--zip', type=str, default=None, help='Path to .zip file containing .txt files (optional)')
-    parser.add_argument('--clear-data', dest='clear_data', action='store_true', help='Clear ./data/ folder at start')
+    # optional: only clear data when flag explicitly provided
+    parser.add_argument('--clear-data', dest='clear_data', action='store_true', default=False, help='Clear ./data/ folder at start')
     parser.add_argument('--ngram-min', type=int, default=2)
     parser.add_argument('--ngram-max', type=int, default=4)
     parser.add_argument('--svd-max-components', type=int, default=150)
@@ -374,13 +318,10 @@ if __name__ == '__main__':
     parser.add_argument('--point-size', type=int, default=8)
 
     # outputs
-    parser.add_argument('--confusion-out', type=str, default='confusion_matrix.png')
-    parser.add_argument('--tsne-out', type=str, default='tsne_plot.html')
-    parser.add_argument('--umap-out', type=str, default='umap_plot.html')
-    parser.add_argument('--distances-out', type=str, default='distances_table.csv')
+    parser.add_argument('--confusion-out', type=str, default='confusion_matrix.png') 
     parser.add_argument('--consensus-out', type=str, default='consensus_tree.png')
-
-    # BCT params
+  
+    # BCT params  
     parser.add_argument('--bct-iterations', type=int, default=500)
     parser.add_argument('--bct-subset', type=int, default=15)
     parser.add_argument('--bct-k', type=int, default=3)
